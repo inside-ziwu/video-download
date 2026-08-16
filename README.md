@@ -48,13 +48,31 @@ python3 ~/.claude/skills/video-download/scripts/download_video.py "<URL或本地
 
 `.env` 里配 `WECHAT_RESOLVER`：
 
-- `public-worker`（推荐）：走 `https://sph.litao.workers.dev` 公共 Worker，无需本机 Cookie，但链接会发给第三方服务
-- `cookie`：用本机元宝 Cookie 解析，隐私更好，需在 `.env` 配置 `SPH_COOKIE` 或 `YUANBAO_COOKIE`
+- `yuanbao-login`（**默认**）：复用 `~/.workbuddy/credentials/yuanbao_state.json` 的腾讯元宝持久化登录态（扫码一次长期复用），走腾讯官方接口，不导出 Cookie、不依赖第三方服务
+- `public-worker`：走 `https://sph.litao.workers.dev` 公共 Worker，无需本机配置，但链接会发给第三方服务；**公共 Worker 失效时自动回退到元宝登录态解析**
+- `cookie`：用本机元宝 Cookie 解析，需在 `.env` 配置 `SPH_COOKIE` 或 `YUANBAO_COOKIE`
 
 ```bash
 cp ~/.claude/skills/video-download/.env.example ~/.claude/skills/video-download/.env
 # 编辑 .env，设置 WECHAT_RESOLVER
 ```
+
+### 元宝登录态解析（推荐，最稳）
+
+公共 Worker 已失效（返回微信错误码 1042）。推荐配置元宝登录态：
+
+```bash
+# 1. 首次建立登录态（弹出浏览器,微信扫码一次,保存到 ~/.workbuddy/credentials/yuanbao_state.json）
+python3 ~/.workbuddy/skills/video-transcript/scripts/sph_resolver.py --login
+
+# 2. 检查登录态是否有效
+python3 ~/.workbuddy/skills/video-transcript/scripts/sph_resolver.py --check
+
+# 3. 直接解析视频号链接(输出 JSON,含 direct_url)
+python3 ~/.workbuddy/skills/video-transcript/scripts/sph_resolver.py "https://weixin.qq.com/sph/xxx"
+```
+
+登录态有效期与微信授权一致，过期后重新 `--login` 扫码即可。之后无论 `WECHAT_RESOLVER` 配的什么，公共 Worker 或 cookie 失败时都会自动回退到这条链路。
 
 ## 体检
 
@@ -77,4 +95,4 @@ video-download  ──(抖音/小红书/B站)──> video-transcript 的 platfo
 
 - `.env` 只在你本机，`.gitignore` 已屏蔽，不提交
 - 不带 token 的视频直链不会写入日志或 metadata
-- 使用 `public-worker` 时视频号链接会发送给第三方 Worker 服务；在意隐私可改用 `cookie` 模式
+- 使用 `public-worker` 时视频号链接会发送给第三方 Worker 服务；在意隐私用默认的 `yuanbao-login` 模式（链接只发给腾讯官方接口）

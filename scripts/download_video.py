@@ -48,18 +48,18 @@ def load_dotenv(path):
 
 load_dotenv(ENV_FILE)
 
-WECHAT_RESOLVERS = ("cookie", "public-worker")
+WECHAT_RESOLVERS = ("yuanbao-login", "public-worker", "cookie")
 
 
 def default_wechat_resolver():
     resolver = (
         os.getenv("WECHAT_RESOLVER")
         or os.getenv("VIDEO_DOWNLOAD_WECHAT_RESOLVER")
-        or "cookie"
+        or "yuanbao-login"
     ).strip()
     if resolver not in WECHAT_RESOLVERS:
-        log(f"[WARN] WECHAT_RESOLVER={resolver!r} 无效,回退 cookie")
-        return "cookie"
+        log(f"[WARN] WECHAT_RESOLVER={resolver!r} 无效,回退 yuanbao-login")
+        return "yuanbao-login"
     return resolver
 
 
@@ -280,10 +280,96 @@ def fetch_public_worker_profile(input_url):
     )
 
 
-def wechat_profile(input_url, quality, resolver="cookie"):
+SPH_RESOLVER_SCRIPT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..", "..",
+    "..", "workbuddy", "skills", "video-transcript", "scripts", "sph_resolver.py",
+)
+
+
+def find_sph_resolver_script():
+    candidates = [
+        os.path.join(os.path.expanduser("~"), ".workbuddy", "skills", "video-transcript", "scripts", "sph_resolver.py"),
+        os.path.join(os.path.expanduser("~"), ".agents", "skills", "video-transcript", "scripts", "sph_resolver.py"),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def _pick_python_for_resolver():
+    """挑一个带 playwright 的 python 解释器来跑 sph_resolver.
+
+    sys.executable 不一定是带 playwright 的那个(比如 download_video 被
+    裸 python3 调起时),按优先级探测几个常见位置.
+    """
+    candidates = [
+        os.path.expanduser("~/.workbuddy/binaries/python/envs/default/bin/python3"),
+        "/opt/anaconda3/bin/python3",
+        "/opt/homebrew/bin/python3",
+        sys.executable,
+    ]
+    for py in candidates:
+        if not os.path.exists(py):
+            continue
+        try:
+            r = subprocess.run(
+                [py, "-c", "import playwright"],
+                capture_output=True, timeout=10,
+            )
+            if r.returncode == 0:
+                return py
+        except Exception:
+            continue
+    return sys.executable
+
+
+def wechat_profile_via_yuanbao(input_url, quality):
+    """通过元宝登录态解析(免扫码,复用持久化登录态)"""
+    script = find_sph_resolver_script()
+    if not script:
+        raise RuntimeError("找不到 sph_resolver.py,无法用元宝登录态解析")
+    py = _pick_python_for_resolver()
+    try:
+        proc = subprocess.run(
+            [py, script, input_url],
+            capture_output=True, text=True, timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("元宝登录态解析超时") from None
+    if proc.returncode != 0:
+        stderr = (proc.stderr or "").strip()
+        if "登录态已过期" in stderr or "无登录态" in stderr:
+            raise RuntimeError("元宝登录态已失效,需要重新执行 sph_resolver.py --login 扫码")
+        raise RuntimeError(f"元宝登录态解析失败: {stderr[:200]}")
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        raise RuntimeError("元宝登录态解析未返回 JSON") from None
+    return {
+        "platform": "wechat_channels",
+        "title": data.get("title") or "",
+        "author": data.get("author") or "",
+        "description": data.get("description") or "",
+        "source_url": input_url,
+        "quality": quality,
+        "resolver": "yuanbao-login",
+        "direct_url": data.get("direct_url") or "",
+        "stats": data.get("stats") or {},
+    }
+
+
+def wechat_profile(input_url, quality, resolver="yuanbao-login"):
     if resolver == "public-worker":
-        feed = fetch_public_worker_profile(input_url)
-        return wechat_profile_from_feed(feed, {}, input_url, quality, resolver)
+        try:
+            feed = fetch_public_worker_profile(input_url)
+            return wechat_profile_from_feed(feed, {}, input_url, quality, resolver)
+        except RuntimeError as exc:
+            log(f"[WARN] 公共 Worker 解析失败({exc}),尝试元宝登录态解析")
+            return wechat_profile_via_yuanbao(input_url, quality)
+    if resolver == "yuanbao-login":
+        return wechat_profile_via_yuanbao(input_url, quality)
 
     cookie = sph_cookie()
     if not cookie:
@@ -587,6 +673,12 @@ def doctor():
     print(f"  ✓ WECHAT_RESOLVER: {resolver}")
     if resolver == "public-worker":
         print("  ⚠ 视频号将使用公共 Worker 解析(会把链接发给第三方服务)")
+    elif resolver == "yuanbao-login":
+        state_file = Path.home() / ".workbuddy" / "credentials" / "yuanbao_state.json"
+        if state_file.exists():
+            print(f"  ✓ 元宝登录态: {state_file}")
+        else:
+            print("  ⚠ 元宝登录态不存在,首次使用需 sph_resolver.py --login 扫码")
     elif sph_cookie():
         print("  ✓ SPH_COOKIE/YUANBAO_COOKIE: 已配置")
     else:
@@ -606,9 +698,9 @@ def main():
     parser.add_argument("--quality", choices=["h264", "h265"], default="h264", help="视频号优先清晰度")
     parser.add_argument(
         "--wechat-resolver",
-        choices=["cookie", "public-worker"],
+        choices=["yuanbao-login", "public-worker", "cookie"],
         default=default_wechat_resolver(),
-        help="视频号解析方式: cookie=本地元宝 Cookie; public-worker=公共 Worker",
+        help="视频号解析方式: yuanbao-login=本地元宝登录态(默认,免扫码); public-worker=公共 Worker(失效自动回退元宝); cookie=手动 Cookie",
     )
     parser.add_argument("--json", action="store_true", help="以 JSON 输出结果")
     parser.add_argument("--probe", action="store_true", help="只探测元信息,不下载")
