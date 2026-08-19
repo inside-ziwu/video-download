@@ -245,6 +245,31 @@ def best_wechat_url(feed_info, quality):
     return picked
 
 
+def _coerce_duration(value):
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return 0
+    if num > 10000:
+        num = num / 1000.0
+    if 1 <= num <= 36000:
+        return int(round(num))
+    return 0
+
+
+def extract_feed_duration(feed, feed_info=None):
+    data = (feed or {}).get("data") or {}
+    feed_info = feed_info or data.get("feedInfo") or {}
+    for blob in (feed_info, feed_info.get("h264VideoInfo") or {}, feed_info.get("h265VideoInfo") or {}, data):
+        if not isinstance(blob, dict):
+            continue
+        for key in ("videoPlayLen", "videoDuration", "duration", "playLen", "videoLen"):
+            dur = _coerce_duration(blob.get(key))
+            if dur:
+                return dur
+    return 0
+
+
 def wechat_profile_from_feed(feed, parsed, input_url, quality, resolver):
     data = feed.get("data") or {}
     feed_info = data.get("feedInfo") or {}
@@ -262,6 +287,7 @@ def wechat_profile_from_feed(feed, parsed, input_url, quality, resolver):
         "quality": quality,
         "resolver": resolver,
         "direct_url": video_url,
+        "duration": extract_feed_duration(feed, feed_info),
         "stats": {
             "fav": feed_info.get("favCountFmt"),
             "like": feed_info.get("likeCountFmt"),
@@ -288,9 +314,14 @@ SPH_RESOLVER_SCRIPT = os.path.join(
 
 
 def find_sph_resolver_script():
+    home = os.path.expanduser("~")
     candidates = [
-        os.path.join(os.path.expanduser("~"), ".workbuddy", "skills", "video-transcript", "scripts", "sph_resolver.py"),
-        os.path.join(os.path.expanduser("~"), ".agents", "skills", "video-transcript", "scripts", "sph_resolver.py"),
+        os.path.join(home, ".workbuddy", "skills", "video-transcript", "scripts", "sph_resolver.py"),
+        os.path.join(home, ".claude", "skills", "video-transcript", "scripts", "sph_resolver.py"),
+        os.path.join(home, ".agents", "skills", "video-transcript", "scripts", "sph_resolver.py"),
+        os.path.join(home, ".codex", "skills", "video-transcript", "scripts", "sph_resolver.py"),
+        os.path.join(home, ".Codex", "skills", "video-transcript", "scripts", "sph_resolver.py"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "video-transcript", "scripts", "sph_resolver.py"),
     ]
     for path in candidates:
         if os.path.exists(path):
@@ -325,9 +356,34 @@ def _pick_python_for_resolver():
     return sys.executable
 
 
+def _profile_from_resolver_data(data, input_url, quality):
+    return {
+        "platform": "wechat_channels",
+        "title": data.get("title") or "",
+        "author": data.get("author") or "",
+        "description": data.get("description") or "",
+        "source_url": input_url,
+        "quality": quality,
+        "resolver": data.get("resolver") or "yuanbao-login",
+        "direct_url": data.get("direct_url") or "",
+        "duration": int(data.get("duration") or 0),
+        "stats": data.get("stats") or {},
+    }
+
+
 def wechat_profile_via_yuanbao(input_url, quality):
-    """通过元宝登录态解析(免扫码,复用持久化登录态)"""
+    """通过元宝登录态解析。优先 import HTTP 路径,失败再子进程回退。"""
     script = find_sph_resolver_script()
+    if script:
+        scripts_dir = os.path.dirname(script)
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        try:
+            import sph_resolver
+            data = sph_resolver.resolve_wechat(input_url)
+            return _profile_from_resolver_data(data, input_url, quality)
+        except Exception as exc:
+            log(f"[WARN] sph_resolver 直调失败({exc}),回退子进程")
     if not script:
         raise RuntimeError("找不到 sph_resolver.py,无法用元宝登录态解析")
     py = _pick_python_for_resolver()
@@ -347,17 +403,7 @@ def wechat_profile_via_yuanbao(input_url, quality):
         data = json.loads(proc.stdout)
     except json.JSONDecodeError:
         raise RuntimeError("元宝登录态解析未返回 JSON") from None
-    return {
-        "platform": "wechat_channels",
-        "title": data.get("title") or "",
-        "author": data.get("author") or "",
-        "description": data.get("description") or "",
-        "source_url": input_url,
-        "quality": quality,
-        "resolver": "yuanbao-login",
-        "direct_url": data.get("direct_url") or "",
-        "stats": data.get("stats") or {},
-    }
+    return _profile_from_resolver_data(data, input_url, quality)
 
 
 def wechat_profile(input_url, quality, resolver="yuanbao-login"):
@@ -619,8 +665,8 @@ def download(input_value, output_dir, quality, wechat_resolver="cookie"):
 def probe(input_value, quality, wechat_resolver="cookie"):
     platform = detect_platform(input_value)
     if platform == "wechat_channels":
-        profile = wechat_profile(input_value, quality, resolver=wechat_resolver)
-        return {k: v for k, v in profile.items() if k != "direct_url"}
+        # 保留 direct_url,供 transcript 复用,避免再解析一遍
+        return wechat_profile(input_value, quality, resolver=wechat_resolver)
     if platform in ("douyin", "xiaohongshu", "bilibili"):
         info = platform_extract(input_value)
         return {
@@ -628,6 +674,9 @@ def probe(input_value, quality, wechat_resolver="cookie"):
             "title": info.get("title"),
             "duration": info.get("duration"),
             "source_url": input_value,
+            "direct_url": info.get("audio_url") or info.get("video_url"),
+            "headers": info.get("headers"),
+            "cached_info": info,
         }
     return {"platform": platform, "source_url": input_value}
 
