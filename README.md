@@ -35,7 +35,7 @@ python3 ~/.claude/skills/video-download/scripts/download_video.py "<URL或本地
 python3 ~/.claude/skills/video-download/scripts/download_video.py "<URL或本地路径>" --json
 ```
 
-默认保存到 `~/Downloads/video-downloads/`，可用 `--output-dir` 改目录。
+默认保存到 `~/Downloads/video-downloads/`。长期改目录在 `.env` 设 `VD_OUTPUT_DIR`（支持 `~`），单次用 `--output-dir` 覆盖；优先级 `--output-dir` > `VD_OUTPUT_DIR` > 默认。
 
 ## 支持的平台
 

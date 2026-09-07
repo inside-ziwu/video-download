@@ -56,13 +56,13 @@ python3 "$VD_HOME/scripts/download_video.py" --doctor
 python3 "$VD_HOME/scripts/download_video.py" "<URL或本地路径>"
 ```
 
-默认保存到:
+保存目录优先级: `--output-dir` > `.env` 的 `VD_OUTPUT_DIR` > 默认 `~/Downloads/video-downloads/`。长期改目录写 `.env`:
 
 ```text
-~/Downloads/video-downloads/
+VD_OUTPUT_DIR=~/Movies/对标视频
 ```
 
-改保存目录:
+只改本次:
 
 ```bash
 python3 "$VD_HOME/scripts/download_video.py" "<URL或本地路径>" --output-dir "/path/to/videos"

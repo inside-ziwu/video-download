@@ -19,6 +19,14 @@ SKILL_DIR = Path(__file__).resolve().parents[1]
 ENV_FILE = SKILL_DIR / ".env"
 DEFAULT_OUTPUT_DIR = Path.home() / "Downloads" / "video-downloads"
 
+
+def default_output_dir():
+    """保存目录: --output-dir > 环境变量 / .env 的 VD_OUTPUT_DIR > ~/Downloads/video-downloads。"""
+    raw = (os.getenv("VD_OUTPUT_DIR") or "").strip()
+    if raw:
+        return Path(os.path.expandvars(raw)).expanduser()
+    return DEFAULT_OUTPUT_DIR
+
 DESKTOP_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -720,6 +728,7 @@ def doctor():
         print(f"  ⚠ 未找到 .env 文件: {ENV_FILE}")
     resolver = default_wechat_resolver()
     print(f"  ✓ WECHAT_RESOLVER: {resolver}")
+    print(f"  ✓ 保存目录: {default_output_dir()}" + ("" if os.getenv("VD_OUTPUT_DIR") else " (默认, 可在 .env 设 VD_OUTPUT_DIR)"))
     if resolver == "public-worker":
         print("  ⚠ 视频号将使用公共 Worker 解析(会把链接发给第三方服务)")
     elif resolver == "yuanbao-login":
@@ -743,7 +752,7 @@ def doctor():
 def main():
     parser = argparse.ArgumentParser(description="下载视频到本地并验证")
     parser.add_argument("input", nargs="?", help="视频 URL 或本地视频路径")
-    parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR), help="输出目录")
+    parser.add_argument("--output-dir", default=None, help="输出目录(默认取 .env 的 VD_OUTPUT_DIR,未设则 ~/Downloads/video-downloads)")
     parser.add_argument("--quality", choices=["h264", "h265"], default="h264", help="视频号优先清晰度")
     parser.add_argument(
         "--wechat-resolver",
@@ -765,7 +774,7 @@ def main():
         if args.probe:
             result = probe(args.input, args.quality, args.wechat_resolver)
         else:
-            result = download(args.input, Path(args.output_dir).expanduser(), args.quality, args.wechat_resolver)
+            result = download(args.input, Path(args.output_dir).expanduser() if args.output_dir else default_output_dir(), args.quality, args.wechat_resolver)
     except Exception as exc:
         if args.json:
             print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
