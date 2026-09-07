@@ -48,7 +48,7 @@ python3 "$VD_HOME/scripts/download_video.py" --doctor
 - yt-dlp
 - playwright + chromium
 - 可复用的 `video-transcript/scripts/platform_extractor.py`
-- 微信视频号 SPH Cookie 配置状态
+- 微信视频号解析方式与元宝登录态
 
 ## 阶段 2 · 下载
 
@@ -85,30 +85,15 @@ python3 "$VD_HOME/scripts/download_video.py" "<URL或本地路径>" --json
 
 ## 微信视频号说明
 
-默认读取 `$VD_HOME/.env` 里的 `WECHAT_RESOLVER`:
-- `WECHAT_RESOLVER=cookie`: 使用本机元宝 Cookie 解析,隐私更好,需要配置 `SPH_COOKIE` 或 `YUANBAO_COOKIE`。
-- `WECHAT_RESOLVER=public-worker`: 使用 `https://sph.litao.workers.dev` 公共 Worker,不需要本机 Cookie,但视频号链接会发给第三方服务。
+解析方式由 `$VD_HOME/.env` 的 `WECHAT_RESOLVER` 决定，`--wechat-resolver` 可单次指定，三种：
 
-本机 Cookie 路线:
-1. 读取 `$VD_HOME/.env` 里的 `SPH_COOKIE` 或 `YUANBAO_COOKIE`。
-2. 调用腾讯元宝 Web 解析接口取得 `playable_url`。
-3. 从 `playable_url` 提取 `token` 和 `eid/exportId`。
-4. 调用视频号 `get_feed_info`。
-5. 优先下载 h264 视频流;可用 `--quality h265` 改为 h265。
+- `yuanbao-login`（**默认**）：复用本机腾讯元宝登录态 `~/.workbuddy/credentials/yuanbao_state.json`，与 video-transcript 共用；链接只发给腾讯官方域名。首次扫码一次：`python3 "$VT_HOME/scripts/sph_resolver.py" --login`（脚本在 video-transcript 里）。
+- `cookie`：手动把元宝 Web Cookie 填进 `.env` 的 `SPH_COOKIE` 或 `YUANBAO_COOKIE`，没填脚本停下提示。
+- `public-worker`：公共 Worker `https://sph.litao.workers.dev`，视频号链接会发给第三方，且已失效（微信错误码 1042），不作为公开兜底；失败自动回退 `yuanbao-login`。
 
-如果 `WECHAT_RESOLVER=cookie` 且没有 Cookie,脚本会停止并提示配置。
+解析步骤：取得 `playable_url` → 提取 `token` 与 `eid/exportId` → 调视频号 `get_feed_info` → 下载 h264 流，`--quality h265` 可换。
 
-当前本机便捷配置可以写成:
-
-```env
-WECHAT_RESOLVER=public-worker
-```
-
-也可以临时显式指定:
-
-```bash
-python3 "$VD_HOME/scripts/download_video.py" "https://weixin.qq.com/sph/xxx" --wechat-resolver public-worker
-```
+登录态失效报 `WECHAT_AUTH_REQUIRED` / `WECHAT_AUTH_EXPIRED`，在本机重新 `--login` 扫码后重试；不要自动改用 `public-worker`。
 
 ## 验收标准
 
