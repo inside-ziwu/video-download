@@ -1,8 +1,10 @@
 # 视频下载（video-download）Skill
 
-把 抖音 / 小红书 / B站 / YouTube / 微信视频号 链接 或 本地视频文件，下载成 durable MP4 保存到本地。输出重点是**文件**，不做逐字稿（那是 [video-transcript](https://github.com/Backtthefuture/video-transcript) 的活）。
+把 抖音 / 小红书 / B站 / YouTube / 微信视频号 链接 或 本地视频文件，下载成 durable MP4 保存到本地。输出重点是**文件**，不做逐字稿（那是 [video-transcript](https://github.com/inside-ziwu/video-transcript) 的活）。
 
-本 skill 也是 [video-transcript](https://github.com/Backtthefuture/video-transcript) 的**配套依赖**：处理微信视频号时，video-transcript 会调用本 skill 先把视频保存为本地 MP4，再交给 FunASR 转录。
+> 本仓库是 [Backtthefuture/video-download](https://github.com/Backtthefuture/video-download) 的 fork，与 [inside-ziwu/video-transcript](https://github.com/inside-ziwu/video-transcript) 配套，安装命令均指向 fork。
+
+本 skill 也是 [video-transcript](https://github.com/inside-ziwu/video-transcript) 的**配套依赖**：处理微信视频号时，video-transcript 会调用本 skill 先把视频保存为本地 MP4，再交给 FunASR 转录。
 
 ---
 
@@ -10,13 +12,13 @@
 
 ```bash
 # 与 video-transcript 一起装（推荐，会自动带本 skill）
-bash <(curl -fsSL https://raw.githubusercontent.com/Backtthefuture/video-transcript/main/bootstrap.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/inside-ziwu/video-transcript/main/bootstrap.sh)
 ```
 
 单独装：
 
 ```bash
-npx skills add Backtthefuture/video-download -a claude-code -g -y
+npx skills add inside-ziwu/video-download -a claude-code -g -y
 pip install --break-system-packages -r ~/.claude/skills/video-download/requirements.txt
 python3 -m playwright install chromium
 ```
